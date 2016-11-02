@@ -52,7 +52,7 @@ Function Import-SpotlightPictures {
             If ($Hashes.Hash -ne $null) {
                 If (!($Hashes.Hash.Contains( (Get-FileHash $_.Path).Hash ) )) {
                     If($counter -lt 10) {
-                        While (Test-Path "$Destination\Spotlight0$counter.jpg") {
+                        While (Test-Path "$Destination\Spotlight00$counter.jpg") {
                             $counter++
                         }
                         Copy-Item $_.Path -Destination "$Destination\Spotlight00$counter.jpg"
