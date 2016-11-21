@@ -9,11 +9,13 @@
     If (!(Test-Path $Path))
 	{
         New-Item $Path -ItemType Directory | Out-Null
+		Write-Verbose "Created directory: $Path"
     }
 
     (Get-ChildItem $env:LOCALAPPDATA\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\LocalState\Assets).ForEach(
 		{
-			Copy-Item -Path $_.FullName -Destination "$Path\Spotlight$counter.jpg"
+			$verboseout = Copy-Item -Path $_.FullName -Destination "$Path\Spotlight$counter.jpg" -PassThru
+			Write-Verbose "Exported file from appdata to temporary path: $verboseout"
 			$counter++
 		}
 	)
@@ -52,9 +54,26 @@ Function Import-SpotlightPictures {
             [Parameter(Position = 1, Mandatory = $False)]
             [string]$Destination = "$env:USERPROFILE\OneDrive\Pictures\Spotlight"
         )
-		
-    $Hashes = (Get-ChildItem $Destination -Filter "Spotlight???.jpg" | Get-FileHash)
-    $counter = $Hashes.Count()
+	
+	If (!(Test-Path $Destination))
+	{
+        New-Item $Destination -ItemType Directory | Out-Null
+		Write-Verbose "Created directory: $Destination"
+    }
+	
+	$DestinationFiles = Get-ChildItem $Destination
+	If ($DestinationFiles -ne $null)
+	{
+		$Hashes = ($DestinationFiles | Get-FileHash)
+		$counter = $Hashes.Count
+	}
+	Else
+	{
+		$Hashes = $null
+		$counter = 0
+	}
+
+	$FileCopied = ""
 	
     (Get-FileMetaData -folder $Source).ForEach(
 		{
@@ -68,25 +87,31 @@ Function Import-SpotlightPictures {
 						{
 							$counter++
 						}
-						Copy-Item $_.Path -Destination ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg")
-						$counter++
+						If ((Copy-Item $_.Path -Destination ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg") -PassThru) -ne $null)
+						{
+							$FileCopied = $FileCopied + ("Spotlight" + $counter.ToString("000") + ".jpg`n")
+							Write-Verbose ("Saved Spotlight picture: $Destination\" + ("Spotlight" + $counter.ToString("000") + ".jpg"))
+							$counter++
+						}
 					}
 				}
 				Else 
 				{
-					If (!($Hashes.Hash.Contains( (Get-FileHash $_.Path).Hash ) ))
+					While (Test-Path ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg"))
 					{
-						While (Test-Path ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg"))
-						{
-							$counter++
-						}
-						Copy-Item $_.Path -Destination ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg")
+						$counter++
+					}
+					If ((Copy-Item $_.Path -Destination ("$Destination\Spotlight" + $counter.ToString("000") + ".jpg") -PassThru) -ne $null)
+					{
+						$FileCopied = $FileCopied + ("$Destination\" + ("Spotlight" + $counter.ToString("000") + ".jpg`n"))
+						Write-Verbose ("Saved Spotlight picture: $Destination\" + ("Spotlight" + $counter.ToString("000") + ".jpg"))
 						$counter++
 					}
 				}
 			}
 		}
 	)
+	return $FileCopied
 }
 
 Function Save-Spotlight {
@@ -102,12 +127,33 @@ Function Save-Spotlight {
 	
     If (Test-Path $TempPath)
 	{
-        Write-Verbose "Exported local Spotlight resources to $TempPath"
-        Write-Verbose "Verifying Spotlight pictures..."
-        Import-SpotlightPictures -Source $TempPath -Destination $Destination
-        Write-Verbose "Imported Spotlight pictures from $TempPath to $Destination"
+        $EventLog = (Import-SpotlightPictures -Source $TempPath -Destination $Destination)
+		If ($EventLog -ne "")
+		{
+			$EventLog = "Save-Spotlight Log:`n`n" + $EventLog
+		}
+		Else
+		{
+			$EventLog = "Save-Spotlight Log:`n`nNo files saved."
+		}
+		$ev = Get-EventLog -LogName Application -Source "Spotlight Manager" -ErrorAction SilentlyContinue
+		If ($ev -eq $null)
+		{
+			try
+			{
+				New-EventLog -LogName Application -Source "Spotlight Manager"
+			}
+			catch
+			{
+				Write-Host "Unable to write to the Event Log. Run the script as administrator once."
+				Write-Verbose $EventLog
+			}
+		}
+		Else
+		{
+			Write-EventLog -LogName Application -Source "Spotlight Manager" -EntryType Information -EventId 1 -Message $EventLog
+		}
         Remove-Item -Path $TempPath -Recurse -Force
-        Write-Host "Operation completed"
     } 
 	Else
 	{
